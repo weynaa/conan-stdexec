@@ -1,14 +1,14 @@
 from conan import ConanFile
 from conan.tools.build.cppstd import check_min_cppstd
 from conan.tools.cmake import CMake, cmake_layout
-from conan.tools.files import copy
+from conan.tools.files import copy, rmdir
 from conan.tools.scm import Git
 
 import os
 
 class StdexecPackage(ConanFile):
     name = "stdexec"
-    description = "Implementation of P2300 std::execution"
+    description = "Experimental Reference implementation of P2300 std::execution"
     author = "Michał Dominiak, Lewis Baker, Lee Howes, Kirk Shoop, Michael Garland, Eric Niebler, Bryce Adelstein Lelbach"
     topics = ("WG21", "concurrency")
     homepage = "https://github.com/NVIDIA/stdexec"
@@ -20,11 +20,11 @@ class StdexecPackage(ConanFile):
     generators = "CMakeToolchain"
 
     options = {
-        "shared": [False, True],
+        "header_only": [False, True],
     }
 
     default_options = {
-        "shared": False
+        "header_only": True,
     }
 
     def validate(self):
@@ -35,17 +35,16 @@ class StdexecPackage(ConanFile):
 
     def source(self):
         git = Git(self)
-        git.clone(url=self.conan_data[self.version]["url"], target=".")
-        git.checkout(commit=self.conan_data[self.version]["commit"])
+        git.clone(url=self.conan_data["sources"][self.version]["url"], target=".")
+        git.checkout(commit=self.conan_data["sources"][self.version]["commit"])
 
     def build(self):
-        tests = "OFF" if self.conf.get(
-            "tools.build:skip_test", default=False) else "ON"
+        build_tests = not self.conf.get("tools.build:skip_test", default=False)
 
         cmake = CMake(self)
         cmake.configure(variables={
-            "STDEXEC_BUILD_TESTS": tests,
-            "STDEXEC_BUILD_EXAMPLES": tests,
+            "STDEXEC_BUILD_TESTS": build_tests,
+            "STDEXEC_BUILD_EXAMPLES": build_tests,
         })
         cmake.build()
         cmake.test()
@@ -53,6 +52,12 @@ class StdexecPackage(ConanFile):
     def package(self):
         cmake = CMake(self)
         cmake.install()
+        
+        copy(self, "license*", self.source_folder, os.path.join(self.package_folder, "licenses"))
+
+        rmdir(self, os.path.join(self.package_folder,"lib","cmake"))
+        if (self.options.header_only):
+            rmdir(self, os.path.join(self.package_folder,"lib"))
 
     def package_info(self):
         self.cpp_info.set_property("cmake_find_package", "STDEXEC")
@@ -65,8 +70,9 @@ class StdexecPackage(ConanFile):
         elif (self.settings.compiler == "gcc"):
             self.cpp_info.components["stdexec"].cxxflags = ["-fcoroutines",
                                                             "-fconcepts-diagnostics-depth=10"]
-
-        self.cpp_info.components["system_context"].set_property(
-            "cmake_target_name", "STDEXEC::system_context")
-        self.cpp_info.components["system_context"].libs = ["system_context"]
-        self.cpp_info.components["system_context"].requires = ["stdexec"]
+        if (not self.options.header_only):
+            self.cpp_info.components["system_context"].set_property(
+                "cmake_target_name", "STDEXEC::system_context")
+            self.cpp_info.components["system_context"].libs = [
+                "system_context"]
+            self.cpp_info.components["system_context"].requires = ["stdexec"]
